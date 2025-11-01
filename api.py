@@ -28,6 +28,63 @@ active_drafts: Dict[str, draft.ScriptFile] = {}
 draft_folders: Dict[str, draft.DraftFolder] = {}
 
 
+# Helper functions
+
+def _validate_path(path: str, path_type: str = "file") -> str:
+    """
+    Validate and sanitize file/folder paths to prevent path traversal attacks.
+
+    Args:
+        path: The path to validate
+        path_type: Either 'file' or 'folder'
+
+    Returns:
+        Normalized absolute path
+
+    Raises:
+        HTTPException: If path is invalid or contains suspicious patterns
+    """
+    try:
+        # Resolve to absolute path and normalize
+        abs_path = os.path.abspath(os.path.normpath(path))
+
+        # Check for path traversal attempts
+        if '..' in path or path.startswith('/') and not os.path.isabs(path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid path: Path traversal detected in {path}"
+            )
+
+        # Verify path exists
+        if path_type == "file" and not os.path.isfile(abs_path):
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not found: {path}"
+            )
+        elif path_type == "folder" and not os.path.isdir(abs_path):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Folder not found: {path}"
+            )
+
+        return abs_path
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid path: {str(e)}"
+        )
+
+
+def _get_draft_from_storage(draft_name: str) -> draft.ScriptFile:
+    """Helper function to safely retrieve a draft from storage"""
+    with _storage_lock:
+        if draft_name not in active_drafts:
+            raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+        return active_drafts[draft_name]
+
+
 # Pydantic models for request/response validation
 class DraftFolderCreate(BaseModel):
     """Model for registering a draft folder"""
@@ -107,16 +164,6 @@ class DraftResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-# Helper functions
-
-def _get_draft_from_storage(draft_key: str) -> draft.ScriptFile:
-    """Helper function to safely retrieve a draft from storage"""
-    with _storage_lock:
-        if draft_key not in active_drafts:
-            raise HTTPException(status_code=404, detail=f"Draft '{draft_key}' not found")
-        return active_drafts[draft_key]
-
-
 # API Endpoints
 
 @app.get("/")
@@ -138,7 +185,9 @@ async def register_draft_folder(folder_data: DraftFolderCreate):
     for subsequent operations.
     """
     try:
-        folder = draft.DraftFolder(folder_data.folder_path)
+        # Validate and sanitize the folder path
+        validated_path = _validate_path(folder_data.folder_path, path_type="folder")
+        folder = draft.DraftFolder(validated_path)
         with _storage_lock:
             draft_folders[folder_data.folder_id] = folder
         return DraftResponse(
@@ -266,14 +315,12 @@ async def add_audio_segment(draft_name: str, segment_data: AudioSegmentAdd):
     script = _get_draft_from_storage(draft_name)
 
     try:
-
-        # Verify the audio file exists
-        if not os.path.exists(segment_data.material_path):
-            raise HTTPException(status_code=404, detail=f"Audio file not found: {segment_data.material_path}")
+        # Validate and sanitize the audio file path
+        validated_path = _validate_path(segment_data.material_path, path_type="file")
 
         # Create audio segment
         audio_segment = draft.AudioSegment(
-            segment_data.material_path,
+            validated_path,
             draft.trange(segment_data.start_time, segment_data.duration),
             volume=segment_data.volume
         )
@@ -307,10 +354,8 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
     script = _get_draft_from_storage(draft_name)
 
     try:
-
-        # Verify the video file exists
-        if not os.path.exists(segment_data.material_path):
-            raise HTTPException(status_code=404, detail=f"Video file not found: {segment_data.material_path}")
+        # Validate and sanitize the video file path
+        validated_path = _validate_path(segment_data.material_path, path_type="file")
 
         # Create clip settings if any visual parameters are specified
         clip_settings = None
@@ -322,7 +367,7 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
 
         # Create video segment
         video_segment = draft.VideoSegment(
-            segment_data.material_path,
+            validated_path,
             draft.trange(segment_data.start_time, segment_data.duration),
             clip_settings=clip_settings
         )
@@ -365,13 +410,11 @@ async def add_sticker_segment(draft_name: str, segment_data: StickerSegmentAdd):
     script = _get_draft_from_storage(draft_name)
 
     try:
-
-        # Verify the file exists
-        if not os.path.exists(segment_data.material_path):
-            raise HTTPException(status_code=404, detail=f"Sticker file not found: {segment_data.material_path}")
+        # Validate and sanitize the sticker file path
+        validated_path = _validate_path(segment_data.material_path, path_type="file")
 
         # Create material to get duration if needed
-        gif_material = draft.VideoMaterial(segment_data.material_path)
+        gif_material = draft.VideoMaterial(validated_path)
 
         # Use provided duration or material duration
         duration = segment_data.duration or gif_material.duration
