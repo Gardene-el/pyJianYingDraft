@@ -4,6 +4,7 @@ Provides REST API endpoints for creating and manipulating JianYing video drafts
 """
 
 import os
+import threading
 from typing import Optional, List, Any, Dict
 
 from fastapi import FastAPI, HTTPException
@@ -21,6 +22,8 @@ app = FastAPI(
 
 # Global storage for draft folders and active scripts
 # In production, this should be replaced with a proper database
+# Using a lock to ensure thread-safe access
+_storage_lock = threading.RLock()
 active_drafts: Dict[str, draft.ScriptFile] = {}
 draft_folders: Dict[str, draft.DraftFolder] = {}
 
@@ -104,6 +107,16 @@ class DraftResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
+# Helper functions
+
+def _get_draft_from_storage(draft_key: str) -> draft.ScriptFile:
+    """Helper function to safely retrieve a draft from storage"""
+    with _storage_lock:
+        if draft_key not in active_drafts:
+            raise HTTPException(status_code=404, detail=f"Draft '{draft_key}' not found")
+        return active_drafts[draft_key]
+
+
 # API Endpoints
 
 @app.get("/")
@@ -126,7 +139,8 @@ async def register_draft_folder(folder_data: DraftFolderCreate):
     """
     try:
         folder = draft.DraftFolder(folder_data.folder_path)
-        draft_folders[folder_data.folder_id] = folder
+        with _storage_lock:
+            draft_folders[folder_data.folder_id] = folder
         return DraftResponse(
             success=True,
             message="Draft folder registered successfully",
@@ -163,9 +177,11 @@ async def create_draft(draft_data: DraftCreate):
     Create a new draft
 
     Creates a new JianYing draft with specified dimensions in the registered folder.
+    Note: Draft names should be unique across all folders to avoid conflicts.
     """
-    if draft_data.folder_id not in draft_folders:
-        raise HTTPException(status_code=404, detail=f"Draft folder '{draft_data.folder_id}' not found")
+    with _storage_lock:
+        if draft_data.folder_id not in draft_folders:
+            raise HTTPException(status_code=404, detail=f"Draft folder '{draft_data.folder_id}' not found")
 
     try:
         folder = draft_folders[draft_data.folder_id]
@@ -177,7 +193,9 @@ async def create_draft(draft_data: DraftCreate):
         )
 
         # Store the draft in active drafts
-        active_drafts[draft_data.draft_name] = script
+        # Note: In production, consider using folder_id + draft_name as composite key
+        with _storage_lock:
+            active_drafts[draft_data.draft_name] = script
 
         return DraftResponse(
             success=True,
@@ -185,7 +203,8 @@ async def create_draft(draft_data: DraftCreate):
             draft_name=draft_data.draft_name,
             data={
                 "width": draft_data.width,
-                "height": draft_data.height
+                "height": draft_data.height,
+                "folder_id": draft_data.folder_id
             }
         )
     except Exception as e:
@@ -199,12 +218,9 @@ async def add_track(draft_name: str, track_data: TrackAdd):
 
     Adds a new track (audio, video, text, effect, or filter) to the draft.
     """
-    if draft_name not in active_drafts:
-        raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+    script = _get_draft_from_storage(draft_name)
 
     try:
-        script = active_drafts[draft_name]
-
         # Map track type string to enum
         track_type_map = {
             'audio': draft.TrackType.audio,
@@ -247,11 +263,9 @@ async def add_audio_segment(draft_name: str, segment_data: AudioSegmentAdd):
 
     Creates an audio segment with optional volume and fade effects.
     """
-    if draft_name not in active_drafts:
-        raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+    script = _get_draft_from_storage(draft_name)
 
     try:
-        script = active_drafts[draft_name]
 
         # Verify the audio file exists
         if not os.path.exists(segment_data.material_path):
@@ -265,7 +279,7 @@ async def add_audio_segment(draft_name: str, segment_data: AudioSegmentAdd):
         )
 
         # Add fade effects if specified
-        if segment_data.fade_in or segment_data.fade_out:
+        if segment_data.fade_in is not None or segment_data.fade_out is not None:
             audio_segment.add_fade(
                 segment_data.fade_in or "0s",
                 segment_data.fade_out or "0s"
@@ -290,11 +304,9 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
 
     Creates a video segment with optional animation, transition, and visual effects.
     """
-    if draft_name not in active_drafts:
-        raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+    script = _get_draft_from_storage(draft_name)
 
     try:
-        script = active_drafts[draft_name]
 
         # Verify the video file exists
         if not os.path.exists(segment_data.material_path):
@@ -320,7 +332,7 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
             try:
                 animation = draft.IntroType.from_name(segment_data.animation_type)
                 video_segment.add_animation(animation)
-            except AttributeError:
+            except (AttributeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"Invalid animation type: {segment_data.animation_type}")
 
         # Add transition if specified
@@ -328,7 +340,7 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
             try:
                 transition = draft.TransitionType.from_name(segment_data.transition_type)
                 video_segment.add_transition(transition)
-            except AttributeError:
+            except (AttributeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"Invalid transition type: {segment_data.transition_type}")
 
         # Add to script
@@ -350,11 +362,9 @@ async def add_sticker_segment(draft_name: str, segment_data: StickerSegmentAdd):
 
     Creates a sticker or GIF segment with optional background blur effect.
     """
-    if draft_name not in active_drafts:
-        raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+    script = _get_draft_from_storage(draft_name)
 
     try:
-        script = active_drafts[draft_name]
 
         # Verify the file exists
         if not os.path.exists(segment_data.material_path):
@@ -395,11 +405,9 @@ async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
 
     Creates a text segment with customizable font, style, position, and effects.
     """
-    if draft_name not in active_drafts:
-        raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+    script = _get_draft_from_storage(draft_name)
 
     try:
-        script = active_drafts[draft_name]
 
         # Build text style
         text_style = None
@@ -423,7 +431,7 @@ async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
         if segment_data.font:
             try:
                 font = draft.FontType.from_name(segment_data.font)
-            except AttributeError:
+            except (AttributeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"Invalid font type: {segment_data.font}")
 
         # Create text segment
@@ -474,11 +482,9 @@ async def save_draft(draft_name: str):
 
     Saves all changes to the draft file.
     """
-    if draft_name not in active_drafts:
-        raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+    script = _get_draft_from_storage(draft_name)
 
     try:
-        script = active_drafts[draft_name]
         script.save()
 
         return DraftResponse(
@@ -497,11 +503,13 @@ async def close_draft(draft_name: str):
 
     This does not delete the draft file, only removes it from the active drafts in memory.
     """
-    if draft_name not in active_drafts:
-        raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
+    with _storage_lock:
+        if draft_name not in active_drafts:
+            raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
 
     try:
-        del active_drafts[draft_name]
+        with _storage_lock:
+            del active_drafts[draft_name]
 
         return DraftResponse(
             success=True,
