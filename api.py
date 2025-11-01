@@ -4,12 +4,9 @@ Provides REST API endpoints for creating and manipulating JianYing video drafts
 """
 
 import os
-import tempfile
 from typing import Optional, List, Any, Dict
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import pyJianYingDraft as draft
 
@@ -123,7 +120,7 @@ async def root():
 async def register_draft_folder(folder_data: DraftFolderCreate):
     """
     Register a JianYing draft folder for use with the API
-    
+
     This endpoint registers a draft folder path and assigns it a unique ID
     for subsequent operations.
     """
@@ -132,7 +129,7 @@ async def register_draft_folder(folder_data: DraftFolderCreate):
         draft_folders[folder_data.folder_id] = folder
         return DraftResponse(
             success=True,
-            message=f"Draft folder registered successfully",
+            message="Draft folder registered successfully",
             data={"folder_id": folder_data.folder_id, "path": folder_data.folder_path}
         )
     except FileNotFoundError as e:
@@ -148,7 +145,7 @@ async def list_drafts(folder_id: str):
     """
     if folder_id not in draft_folders:
         raise HTTPException(status_code=404, detail=f"Draft folder '{folder_id}' not found")
-    
+
     try:
         drafts = draft_folders[folder_id].list_drafts()
         return DraftResponse(
@@ -164,12 +161,12 @@ async def list_drafts(folder_id: str):
 async def create_draft(draft_data: DraftCreate):
     """
     Create a new draft
-    
+
     Creates a new JianYing draft with specified dimensions in the registered folder.
     """
     if draft_data.folder_id not in draft_folders:
         raise HTTPException(status_code=404, detail=f"Draft folder '{draft_data.folder_id}' not found")
-    
+
     try:
         folder = draft_folders[draft_data.folder_id]
         script = folder.create_draft(
@@ -178,10 +175,10 @@ async def create_draft(draft_data: DraftCreate):
             draft_data.height,
             allow_replace=draft_data.allow_replace
         )
-        
+
         # Store the draft in active drafts
         active_drafts[draft_data.draft_name] = script
-        
+
         return DraftResponse(
             success=True,
             message=f"Draft '{draft_data.draft_name}' created successfully",
@@ -199,15 +196,15 @@ async def create_draft(draft_data: DraftCreate):
 async def add_track(draft_name: str, track_data: TrackAdd):
     """
     Add a track to an existing draft
-    
+
     Adds a new track (audio, video, text, effect, or filter) to the draft.
     """
     if draft_name not in active_drafts:
         raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
-    
+
     try:
         script = active_drafts[draft_name]
-        
+
         # Map track type string to enum
         track_type_map = {
             'audio': draft.TrackType.audio,
@@ -216,24 +213,24 @@ async def add_track(draft_name: str, track_data: TrackAdd):
             'effect': draft.TrackType.effect,
             'filter': draft.TrackType.filter
         }
-        
+
         if track_data.track_type not in track_type_map:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid track type. Must be one of: {list(track_type_map.keys())}"
             )
-        
+
         track_type = track_type_map[track_data.track_type]
-        
+
         # Build kwargs, excluding None values for optional parameters
         kwargs = {}
         if track_data.track_name is not None:
             kwargs['track_name'] = track_data.track_name
         if track_data.relative_index is not None:
             kwargs['relative_index'] = track_data.relative_index
-        
+
         script.add_track(track_type, **kwargs)
-        
+
         return DraftResponse(
             success=True,
             message=f"Track '{track_data.track_type}' added successfully",
@@ -247,36 +244,36 @@ async def add_track(draft_name: str, track_data: TrackAdd):
 async def add_audio_segment(draft_name: str, segment_data: AudioSegmentAdd):
     """
     Add an audio segment to the draft
-    
+
     Creates an audio segment with optional volume and fade effects.
     """
     if draft_name not in active_drafts:
         raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
-    
+
     try:
         script = active_drafts[draft_name]
-        
+
         # Verify the audio file exists
         if not os.path.exists(segment_data.material_path):
             raise HTTPException(status_code=404, detail=f"Audio file not found: {segment_data.material_path}")
-        
+
         # Create audio segment
         audio_segment = draft.AudioSegment(
             segment_data.material_path,
             draft.trange(segment_data.start_time, segment_data.duration),
             volume=segment_data.volume
         )
-        
+
         # Add fade effects if specified
         if segment_data.fade_in or segment_data.fade_out:
             audio_segment.add_fade(
                 segment_data.fade_in or "0s",
                 segment_data.fade_out or "0s"
             )
-        
+
         # Add to script
         script.add_segment(audio_segment, segment_data.track_name)
-        
+
         return DraftResponse(
             success=True,
             message="Audio segment added successfully",
@@ -290,19 +287,19 @@ async def add_audio_segment(draft_name: str, segment_data: AudioSegmentAdd):
 async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
     """
     Add a video segment to the draft
-    
+
     Creates a video segment with optional animation, transition, and visual effects.
     """
     if draft_name not in active_drafts:
         raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
-    
+
     try:
         script = active_drafts[draft_name]
-        
+
         # Verify the video file exists
         if not os.path.exists(segment_data.material_path):
             raise HTTPException(status_code=404, detail=f"Video file not found: {segment_data.material_path}")
-        
+
         # Create clip settings if any visual parameters are specified
         clip_settings = None
         if segment_data.alpha is not None or segment_data.scale is not None:
@@ -310,14 +307,14 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
                 alpha=segment_data.alpha,
                 scale=segment_data.scale
             )
-        
+
         # Create video segment
         video_segment = draft.VideoSegment(
             segment_data.material_path,
             draft.trange(segment_data.start_time, segment_data.duration),
             clip_settings=clip_settings
         )
-        
+
         # Add animation if specified
         if segment_data.animation_type:
             try:
@@ -325,7 +322,7 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
                 video_segment.add_animation(animation)
             except AttributeError:
                 raise HTTPException(status_code=400, detail=f"Invalid animation type: {segment_data.animation_type}")
-        
+
         # Add transition if specified
         if segment_data.transition_type:
             try:
@@ -333,10 +330,10 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
                 video_segment.add_transition(transition)
             except AttributeError:
                 raise HTTPException(status_code=400, detail=f"Invalid transition type: {segment_data.transition_type}")
-        
+
         # Add to script
         script.add_segment(video_segment, segment_data.track_name)
-        
+
         return DraftResponse(
             success=True,
             message="Video segment added successfully",
@@ -350,38 +347,38 @@ async def add_video_segment(draft_name: str, segment_data: VideoSegmentAdd):
 async def add_sticker_segment(draft_name: str, segment_data: StickerSegmentAdd):
     """
     Add a sticker/GIF segment to the draft
-    
+
     Creates a sticker or GIF segment with optional background blur effect.
     """
     if draft_name not in active_drafts:
         raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
-    
+
     try:
         script = active_drafts[draft_name]
-        
+
         # Verify the file exists
         if not os.path.exists(segment_data.material_path):
             raise HTTPException(status_code=404, detail=f"Sticker file not found: {segment_data.material_path}")
-        
+
         # Create material to get duration if needed
         gif_material = draft.VideoMaterial(segment_data.material_path)
-        
+
         # Use provided duration or material duration
         duration = segment_data.duration or gif_material.duration
-        
+
         # Create sticker segment
         gif_segment = draft.VideoSegment(
             gif_material,
             draft.trange(segment_data.start_time, duration)
         )
-        
+
         # Add background blur if specified
         if segment_data.background_blur is not None:
             gif_segment.add_background_filling("blur", segment_data.background_blur)
-        
+
         # Add to script
         script.add_segment(gif_segment, segment_data.track_name)
-        
+
         return DraftResponse(
             success=True,
             message="Sticker segment added successfully",
@@ -395,15 +392,15 @@ async def add_sticker_segment(draft_name: str, segment_data: StickerSegmentAdd):
 async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
     """
     Add a text segment to the draft
-    
+
     Creates a text segment with customizable font, style, position, and effects.
     """
     if draft_name not in active_drafts:
         raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
-    
+
     try:
         script = active_drafts[draft_name]
-        
+
         # Build text style
         text_style = None
         if segment_data.size or segment_data.color:
@@ -415,12 +412,12 @@ async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
                     raise HTTPException(status_code=400, detail="Color must be [r, g, b] with values 0.0-1.0")
                 style_args['color'] = tuple(segment_data.color)
             text_style = draft.TextStyle(**style_args)
-        
+
         # Build clip settings
         clip_settings = None
         if segment_data.transform_y is not None:
             clip_settings = draft.ClipSettings(transform_y=segment_data.transform_y)
-        
+
         # Get font if specified
         font = None
         if segment_data.font:
@@ -428,7 +425,7 @@ async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
                 font = draft.FontType.from_name(segment_data.font)
             except AttributeError:
                 raise HTTPException(status_code=400, detail=f"Invalid font type: {segment_data.font}")
-        
+
         # Create text segment
         text_segment = draft.TextSegment(
             segment_data.text,
@@ -437,7 +434,7 @@ async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
             style=text_style,
             clip_settings=clip_settings
         )
-        
+
         # Add animation if specified
         if segment_data.animation_type:
             try:
@@ -449,18 +446,18 @@ async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
                 text_segment.add_animation(animation)
             except (AttributeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"Invalid text animation type: {segment_data.animation_type}")
-        
+
         # Add bubble effect if specified
         if segment_data.bubble_category_id and segment_data.bubble_resource_id:
             text_segment.add_bubble(segment_data.bubble_category_id, segment_data.bubble_resource_id)
-        
+
         # Add flower text effect if specified
         if segment_data.effect_resource_id:
             text_segment.add_effect(segment_data.effect_resource_id)
-        
+
         # Add to script
         script.add_segment(text_segment, segment_data.track_name)
-        
+
         return DraftResponse(
             success=True,
             message="Text segment added successfully",
@@ -474,16 +471,16 @@ async def add_text_segment(draft_name: str, segment_data: TextSegmentAdd):
 async def save_draft(draft_name: str):
     """
     Save the draft
-    
+
     Saves all changes to the draft file.
     """
     if draft_name not in active_drafts:
         raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
-    
+
     try:
         script = active_drafts[draft_name]
         script.save()
-        
+
         return DraftResponse(
             success=True,
             message=f"Draft '{draft_name}' saved successfully",
@@ -497,15 +494,15 @@ async def save_draft(draft_name: str):
 async def close_draft(draft_name: str):
     """
     Close and remove a draft from active drafts
-    
+
     This does not delete the draft file, only removes it from the active drafts in memory.
     """
     if draft_name not in active_drafts:
         raise HTTPException(status_code=404, detail=f"Draft '{draft_name}' not found")
-    
+
     try:
         del active_drafts[draft_name]
-        
+
         return DraftResponse(
             success=True,
             message=f"Draft '{draft_name}' closed successfully",
