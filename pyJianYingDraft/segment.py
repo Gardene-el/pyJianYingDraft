@@ -2,6 +2,7 @@
 
 import uuid
 from typing import Optional, Dict, List, Any, Union
+from pydantic import BaseModel, Field
 
 from .animation import SegmentAnimations
 from .time_util import Timerange, tim
@@ -124,25 +125,27 @@ class AudioFade:
             "type": "audio_fade"
         }
 
-class ClipSettings:
+class ClipSettings(BaseModel):
     """素材片段的图像调节设置"""
+    
+    alpha: float = Field(default=1.0, description="图像不透明度, 0-1")
+    flip_horizontal: bool = Field(default=False, description="是否水平翻转")
+    flip_vertical: bool = Field(default=False, description="是否垂直翻转")
+    rotation: float = Field(default=0.0, description="顺时针旋转的角度, 可正可负")
+    scale_x: float = Field(default=1.0, description="水平缩放比例")
+    scale_y: float = Field(default=1.0, description="垂直缩放比例")
+    transform_x: float = Field(default=0.0, description="水平位移, 单位为半个画布宽")
+    transform_y: float = Field(default=0.0, description="垂直位移, 单位为半个画布高")
 
-    alpha: float
-    """图像不透明度, 0-1"""
-    flip_horizontal: bool
-    """是否水平翻转"""
-    flip_vertical: bool
-    """是否垂直翻转"""
-    rotation: float
-    """顺时针旋转的**角度**, 可正可负"""
-    scale_x: float
-    """水平缩放比例"""
-    scale_y: float
-    """垂直缩放比例"""
-    transform_x: float
-    """水平位移, 单位为半个画布宽"""
-    transform_y: float
-    """垂直位移, 单位为半个画布高"""
+    def export_json(self) -> Dict[str, Any]:
+        clip_settings_json = {
+            "alpha": self.alpha,
+            "flip": {"horizontal": self.flip_horizontal, "vertical": self.flip_vertical},
+            "rotation": self.rotation,
+            "scale": {"x": self.scale_x, "y": self.scale_y},
+            "transform": {"x": self.transform_x, "y": self.transform_y}
+        }
+        return clip_settings_json
 
     def __init__(self, *, alpha: float = 1.0,
                  flip_horizontal: bool = False, flip_vertical: bool = False,
