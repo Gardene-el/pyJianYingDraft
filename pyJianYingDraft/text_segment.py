@@ -6,6 +6,7 @@ from copy import deepcopy
 
 from typing import Dict, Tuple, Any
 from typing import Union, Optional, Literal
+from pydantic import BaseModel, Field
 
 from .time_util import Timerange, tim
 from .segment import ClipSettings, VisualSegment
@@ -14,76 +15,26 @@ from .animation import SegmentAnimations, Text_animation
 from .metadata import FontType, EffectMeta
 from .metadata import TextIntro, TextOutro, TextLoopAnim
 
-class TextStyle:
+class TextStyle(BaseModel):
     """字体样式类"""
 
-    size: float
-    """字体大小"""
-
-    bold: bool
-    """是否加粗"""
-    italic: bool
-    """是否斜体"""
-    underline: bool
-    """是否加下划线"""
-
-    color: Tuple[float, float, float]
-    """字体颜色, RGB三元组, 取值范围为[0, 1]"""
-    alpha: float
-    """字体不透明度"""
-
-    align: Literal[0, 1, 2]
-    """对齐方式"""
-    vertical: bool
-    """是否为竖排文本"""
-
-    letter_spacing: int
-    """字符间距"""
-    line_spacing: int
-    """行间距"""
-
-    auto_wrapping: bool
-    """是否自动换行"""
-    max_line_width: float
-    """最大行宽, 取值范围为[0, 1]"""
-
-    def __init__(self, *, size: float = 8.0, bold: bool = False, italic: bool = False, underline: bool = False,
-                 color: Tuple[float, float, float] = (1.0, 1.0, 1.0), alpha: float = 1.0,
-                 align: Literal[0, 1, 2] = 0, vertical: bool = False,
-                 letter_spacing: int = 0, line_spacing: int = 0,
-                 auto_wrapping: bool = False, max_line_width: float = 0.82):
-        """
-        Args:
-            size (`float`, optional): 字体大小, 默认为8.0
-            bold (`bool`, optional): 是否加粗, 默认为否
-            italic (`bool`, optional): 是否斜体, 默认为否
-            underline (`bool`, optional): 是否加下划线, 默认为否
-            color (`Tuple[float, float, float]`, optional): 字体颜色, RGB三元组, 取值范围为[0, 1], 默认为白色
-            alpha (`float`, optional): 字体不透明度, 取值范围[0, 1], 默认不透明
-            align (`int`, optional): 对齐方式, 0: 左对齐, 1: 居中, 2: 右对齐, 默认为左对齐
-            vertical (`bool`, optional): 是否为竖排文本, 默认为否
-            letter_spacing (`int`, optional): 字符间距, 定义与剪映中一致, 默认为0
-            line_spacing (`int`, optional): 行间距, 定义与剪映中一致, 默认为0
-            auto_wrapping (`bool`, optional): 是否自动换行, 默认关闭
-            max_line_width (`float`, optional): 每行最大行宽占屏幕宽度比例, 取值范围为[0, 1], 默认为0.82
-        """
-        self.size = size
-        self.bold = bold
-        self.italic = italic
-        self.underline = underline
-
-        self.color = color
-        self.alpha = alpha
-
-        self.align = align
-        self.vertical = vertical
-
-        self.letter_spacing = letter_spacing
-        self.line_spacing = line_spacing
-
-        self.auto_wrapping = auto_wrapping
-        self.max_line_width = max_line_width
-
+    size: float = Field(default=8.0, description="字体大小")
+    bold: bool = Field(default=False, description="是否加粗")
+    italic: bool = Field(default=False, description="是否斜体")
+    underline: bool = Field(default=False, description="是否加下划线")
+    
+    color: Tuple[float, float, float] = Field(default=(1.0, 1.0, 1.0), description="字体颜色, RGB三元组, 取值范围为[0, 1]")
+    alpha: float = Field(default=1.0, description="字体不透明度")
+    
+    align: Literal[0, 1, 2] = Field(default=0, description="对齐方式")
+    vertical: bool = Field(default=False, description="是否为竖排文本")
+    
+    letter_spacing: int = Field(default=0, description="字符间距")
+    line_spacing: int = Field(default=0, description="行间距")
+    
+    auto_wrapping: bool = Field(default=False, description="是否自动换行")
+    max_line_width: float = Field(default=0.82, description="最大行宽, 取值范围为[0, 1]")
+    
 class TextBorder:
     """文本描边的参数"""
 
