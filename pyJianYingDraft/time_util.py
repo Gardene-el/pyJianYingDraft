@@ -1,7 +1,7 @@
 """定义时间范围类以及与时间相关的辅助函数"""
 
-from typing import Union
-from typing import Dict
+from typing import Union,Dict
+from pydantic import BaseModel, Field
 
 SEC = 1000000
 """一秒=1e6微秒"""
@@ -31,51 +31,34 @@ def tim(inp: Union[str, float]) -> int:
 
     return int(round(total_time) * sign)
 
-class Timerange:
+class Timerange(BaseModel):
     """记录了起始时间及持续长度的时间范围"""
-    start: int
-    """起始时间, 单位为微秒"""
-    duration: int
-    """持续长度, 单位为微秒"""
-
-    def __init__(self, start: int, duration: int):
-        """构造一个时间范围
-
-        Args:
-            start (int): 起始时间, 单位为微秒
-            duration (int): 持续长度, 单位为微秒
-        """
-
-        self.start = start
-        self.duration = duration
+    start: int = Field(..., description="起始时间, 单位为微秒")
+    duration: int = Field(..., description="持续长度, 单位为微秒")
 
     @classmethod
     def import_json(cls, json_obj: Dict[str, str]) -> "Timerange":
-        """从json对象中恢复Timerange"""
-        return cls(int(json_obj["start"]), int(json_obj["duration"]))
-
+        """从json对象中恢复Timerange (兼容旧接口)"""
+        return cls.model_validate({"start": int(json_obj["start"]), "duration": int(json_obj["duration"])})
+    
+    def export_json(self) -> Dict[str, int]:
+        """导出为json格式 (兼容旧接口)"""
+        return self.model_dump()
+    
     @property
     def end(self) -> int:
         """结束时间, 单位为微秒"""
         return self.start + self.duration
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Timerange):
-            return False
-        return self.start == other.start and self.duration == other.duration
-
     def overlaps(self, other: "Timerange") -> bool:
         """判断两个时间范围是否有重叠"""
         return not (self.end <= other.start or other.end <= self.start)
 
-    def __repr__(self) -> str:
-        return f"Timerange(start={self.start}, duration={self.duration})"
-
     def __str__(self) -> str:
         return f"[start={self.start}, end={self.end}]"
 
-    def export_json(self) -> Dict[str, int]:
-        return {"start": self.start, "duration": self.duration}
+
+
 
 def trange(start: Union[str, float], duration: Union[str, float]) -> Timerange:
     """Timerange的简便构造函数, 接受字符串或微秒数作为参数
