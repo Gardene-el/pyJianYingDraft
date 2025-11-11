@@ -21,6 +21,7 @@ setup(
     install_requires=[
         "pymediainfo",
         "imageio",
-        "uiautomation>=2; sys_platform == 'win32'"
+        "uiautomation>=2; sys_platform == 'win32'",
+        "pydantic>=2.0"
     ],
 )
